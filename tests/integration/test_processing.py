@@ -1,12 +1,13 @@
 """End-to-end copy sanitization with generated public fixtures."""
 
 import hashlib
+import zlib
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from threading import Event
 
 import pytest
-from PIL import Image
+from PIL import Image, ImageCms, PngImagePlugin
 
 from app.core.inspector import MetadataInspector
 from app.core.models import ProcessingOptions, VerificationResult, VerificationState
@@ -44,6 +45,41 @@ def test_collisions_never_overwrite(jpeg_file: Path, tmp_path: Path) -> None:
     assert second.output is not None, second.error
     assert second.output != first.output
     assert first.output.read_bytes() == first_content
+
+
+def test_png_cleanup_keeps_icc_bytes_but_removes_free_form_profile_name(tmp_path: Path) -> None:
+    source = tmp_path / "profile.png"
+    profile = ImageCms.ImageCmsProfile(ImageCms.createProfile("sRGB")).tobytes()
+    text = PngImagePlugin.PngInfo()
+    text.add_text("Transparency", "Private text named like a technical tag")
+    Image.new("RGB", (12, 9), "blue").save(source, icc_profile=profile, pnginfo=text)
+
+    data = source.read_bytes()
+    start = data.index(b"iCCP") - 4
+    length = int.from_bytes(data[start : start + 4], "big")
+    end = start + length + 12
+    profile_payload = data[start + 8 : end - 4].split(b"\x00", 1)[1]
+    private_name = b"Private Profile Label"
+    chunk = b"iCCP" + private_name + b"\x00" + profile_payload
+    original = (
+        data[:start]
+        + (len(chunk) - 4).to_bytes(4, "big")
+        + chunk
+        + zlib.crc32(chunk).to_bytes(4, "big")
+        + data[end:]
+    )
+    source.write_bytes(original)
+
+    result = Sanitizer().process(source, ProcessingOptions(tmp_path / "clean"))
+    assert result.output is not None, result
+    assert source.read_bytes() == original
+    output = result.output.read_bytes()
+    assert b"iCCPICC Profile\x00" + profile_payload in output
+    assert private_name not in output
+    with Image.open(source) as before, Image.open(result.output) as after:
+        assert after.tobytes() == before.tobytes()
+        assert after.info["icc_profile"] == profile
+        assert not after.text
 
 
 def test_concurrent_publication_never_overwrites(jpeg_file: Path, tmp_path: Path) -> None:

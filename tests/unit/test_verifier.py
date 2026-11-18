@@ -33,6 +33,7 @@ def test_changed_palette_transparency_fails_verification(tmp_path: Path) -> None
         MetadataInspector().inspect(source), output, ProcessingOptions(tmp_path)
     )
     assert result.state == VerificationState.FAILED
+    assert result.warnings == ("Decoded pixels or display orientation changed.",)
 
 
 def test_large_image_fingerprint_covers_last_band_and_can_cancel(

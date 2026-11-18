@@ -10,6 +10,7 @@ from PIL import ExifTags, Image
 
 from app.core.exiftool import run_exiftool
 from app.core.formats import detect_format
+from app.core.image_cleaner import PNG_ICC_PROFILE_NAME
 from app.core.jpeg_structure import STALE_MPF_WARNING, jpeg_frame_info
 from app.core.models import (
     DependencyError,
@@ -114,6 +115,16 @@ _TECHNICAL = {
     "colormap",
 }
 
+_EXIFTOOL_IMAGE_STRUCTURE = {
+    FileFormat.PNG: {"PNG:Palette", "PNG:Transparency"},
+    FileFormat.WEBP: {
+        "RIFF:RIFF-VP8X:WebP_Flags",
+        "RIFF:RIFF-ALPH:AlphaPreprocessing",
+        "RIFF:RIFF-ALPH:AlphaFiltering",
+        "RIFF:RIFF-ALPH:AlphaCompression",
+    },
+}
+
 
 def category_for(name: str) -> str:
     lower = name.lower()
@@ -147,6 +158,21 @@ def _field(name: str, value: Any, *, sensitive: bool | None = None) -> MetadataF
         )
     category = category_for(name) if sensitive else "Technical"
     return MetadataField(name, _text(value), category, sensitive)
+
+
+def _exiftool_image_field(name: str, value: Any, format_: FileFormat) -> MetadataField:
+    if format_ not in _EXIFTOOL_IMAGE_STRUCTURE:
+        return _field(name, value)
+    sensitive = None
+    if name.startswith("PNG:PNG-TextualData:"):
+        sensitive = True
+    elif name in _EXIFTOOL_IMAGE_STRUCTURE[format_]:
+        sensitive = False
+    elif format_ == FileFormat.PNG and name == "PNG:PNG-ICC_Profile:ProfileName":
+        sensitive = value != PNG_ICC_PROFILE_NAME
+    group, _, path = name.partition(":")
+    display_name = f"{group}:{path.rsplit(':', 1)[-1]}" if path else name
+    return _field(display_name, value, sensitive=sensitive)
 
 
 def _pymupdf() -> Any:
@@ -302,7 +328,9 @@ class MetadataInspector:
                         fields.append(_field(f"EXIF:{ExifTags.TAGS.get(key, str(key))}", value))
         executable = check_dependencies()["exiftool"]
         if executable:
-            raw = run_exiftool(executable, ["-j", "-G1", "-a", "-s"], path, cancel)
+            # Group family 5 distinguishes structural tags from PNG text with the same names.
+            groups = "-G1:5" if format_ in _EXIFTOOL_IMAGE_STRUCTURE else "-G1"
+            raw = run_exiftool(executable, ["-j", groups, "-a", "-s"], path, cancel)
             try:
                 records = json.loads(raw)
                 if not isinstance(records, list) or len(records) != 1:
@@ -319,7 +347,7 @@ class MetadataInspector:
                             "ExifTool reported a structural warning; coverage may be incomplete."
                         )
                     continue
-                fields.append(_field(key, value))
+                fields.append(_exiftool_image_field(key, value, format_))
         else:
             notes.append("ExifTool is unavailable; inspection uses the limited Pillow scanner.")
         return InspectionResult(path, format_, tuple(fields), tuple(notes))

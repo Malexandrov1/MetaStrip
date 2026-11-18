@@ -9,6 +9,8 @@ from PIL import Image
 from app.core.jpeg_structure import jpeg_frame_info, jpeg_segments
 from app.core.models import FileFormat, MetaStripError
 
+PNG_ICC_PROFILE_NAME = "ICC Profile"
+
 
 def _fail() -> None:
     raise MetaStripError("Malformed image structure; no sanitized copy was created.")
@@ -30,8 +32,6 @@ def clean_png(data: bytes, preserve_icc: bool) -> bytes:
         b"bKGD",
         b"pHYs",
     }
-    if preserve_icc:
-        keep.add(b"iCCP")
     found_end = False
     while position + 12 <= len(data):
         length = int.from_bytes(data[position : position + 4], "big")
@@ -46,7 +46,17 @@ def clean_png(data: bytes, preserve_icc: bool) -> bytes:
             raise MetaStripError("Animated PNG files are not supported for safe sanitization.")
         if kind not in keep and not kind[0] & 32:
             raise MetaStripError("Unknown critical PNG chunk; safe processing is unavailable.")
-        if kind in keep:
+        if kind == b"iCCP" and preserve_icc:
+            name, separator, profile = payload.partition(b"\x00")
+            if not separator or not 1 <= len(name) <= 79 or not profile.startswith(b"\x00"):
+                _fail()
+            # The PNG chunk's name can carry arbitrary text. Keep the compressed ICC payload.
+            payload = PNG_ICC_PROFILE_NAME.encode("ascii") + separator + profile
+            chunk = kind + payload
+            output.extend(
+                len(payload).to_bytes(4, "big") + chunk + zlib.crc32(chunk).to_bytes(4, "big")
+            )
+        elif kind in keep:
             output.extend(data[position:end])
         position = end
         if kind == b"IEND":
