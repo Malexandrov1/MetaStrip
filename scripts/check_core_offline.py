@@ -416,17 +416,38 @@ class ProcessTreeSafetyTests(unittest.TestCase):
             finally:
                 kernel.CloseHandle(handle)
         else:
+            proc_stat = Path(f"/proc/{pid}/stat")
             for _ in range(100):
                 try:
                     os.kill(pid, 0)
+                    state = proc_stat.read_text()
                 except ProcessLookupError:
                     return
-                state = Path(f"/proc/{pid}/stat")
-                if state.exists() and state.read_text().split(") ", 1)[1].startswith("Z"):
-                    return
+                except FileNotFoundError:
+                    # The process can be reaped after the probe, and /proc is optional.
+                    pass
+                else:
+                    if state.rsplit(") ", 1)[1].startswith("Z "):
+                        return
                 time.sleep(0.01)
-            os.kill(pid, signal.SIGKILL)
+            try:
+                os.kill(pid, signal.SIGKILL)
+            except ProcessLookupError:
+                return
             self.fail("Grandchild survived local-tool cancellation/timeout")
+
+    def test_descendant_reaped_while_reading_proc_stat(self) -> None:
+        with TemporaryDirectory(prefix="metastrip-tree-") as directory:
+            marker = Path(directory) / "grandchild.pid"
+            marker.write_text("1234")
+            with patch(f"{__name__}.os") as posix, patch(f"{__name__}.Path") as paths:
+                posix.name = "posix"
+                posix.kill.side_effect = [None, ProcessLookupError()]
+                proc_stat = paths.return_value
+                proc_stat.exists.return_value = True
+                proc_stat.read_text.side_effect = FileNotFoundError()
+                self._assert_descendant_stopped(marker)
+            proc_stat.read_text.assert_called_once_with()
 
     def test_timeout_stops_grandchild(self) -> None:
         with TemporaryDirectory(prefix="metastrip-tree-") as directory:
