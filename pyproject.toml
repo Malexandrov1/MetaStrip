@@ -1,0 +1,37 @@
+[build-system]
+requires = ["setuptools>=77.0.3"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "metastrip"
+version = "0.1.0"
+description = "Remove hidden metadata. Keep your files private."
+requires-python = ">=3.12"
+license = "AGPL-3.0-only"
+license-files = ["LICENSE", "LICENSES/MIT.txt", "THIRD_PARTY_NOTICES.md"]
+dependencies = ["PySide6>=6.7,<7", "PyMuPDF>=1.24,<2", "Pillow>=13,<14"]
+
+[project.optional-dependencies]
+dev = ["pytest>=8,<10", "pytest-qt>=4.4,<5", "ruff>=0.9,<1"]
+windows-build = ["pyinstaller>=6.10,<7"]
+
+[project.gui-scripts]
+metastrip = "app.main:main"
+
+[project.scripts]
+metastrip-cli = "app.cli:main"
+
+[tool.setuptools.packages.find]
+include = ["app*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+qt_api = "pyside6"
+markers = ["integration: requires external tools", "gui: desktop interface tests"]
+
+[tool.ruff]
+target-version = "py312"
+line-length = 100
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B", "SIM"]

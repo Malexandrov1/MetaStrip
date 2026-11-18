@@ -1,0 +1,53 @@
+# Python environments and caches
+.venv/
+venv/
+.wheelhouse/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+.tox/
+.nox/
+.coverage
+.coverage.*
+htmlcov/
+
+# Build and test output
+build/
+dist/
+dist-*/
+*.egg-info/
+*.whl
+*.spec
+test-results/
+artifacts/
+*.exe
+*.dll
+*.log
+*.tmp
+
+# Editor and operating-system files
+.idea/
+.vscode/
+Thumbs.db
+.DS_Store
+
+# Local tools, credentials and development notes
+.env
+.env.*
+!.env.example
+.envrc
+.aws/
+.ssh/
+*.pem
+*.key
+*.pfx
+*.p12
+/.agents/
+/.codex/
+/tools/
+/settings.json
+/history.json
+/PROGRESS.md
+/docs/DEVELOPMENT_HANDOFF.md

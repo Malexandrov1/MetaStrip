@@ -1,0 +1,1 @@
+"""Qt background work adapters."""
